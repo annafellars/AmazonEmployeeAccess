@@ -92,3 +92,32 @@ kaggle <- pen_preds|>
 
 ##write out file
 vroom_write(x = kaggle, file = "./AmazonPenLog.csv", delim=",")
+
+#####################################################################################
+
+#knn model
+knn_model <- nearest_neighbor(neighbors = 180) |>
+  set_mode('classification') |>
+  set_engine('kknn')
+
+#set workflow
+knn_wf <- workflow() |>
+  add_recipe(my_recipe) |>
+  add_model(knn_model) |>
+  fit(data = train_data)
+
+#Predict
+knn_preds = predict(knn_wf, 
+                    new_data = test_data, type = "prob")
+
+## Format predictions for Kaggle
+knn_kaggle <- knn_preds|>
+  bind_cols(test_data) |>
+  select(id, .pred_1) |>
+  rename(Action = .pred_1) |>
+  rename(Id = id)
+
+##write out file
+vroom_write(x = knn_kaggle, file = "./Amazonknn.csv", delim=",")
+
+
