@@ -3,8 +3,8 @@ library(tidymodels)
 library(vroom)
 library(embed)
 
-test_data <- vroom("test.csv")
-train_data <- vroom("train.csv") |>
+test_data <- vroom("./test.csv")
+train_data <- vroom("./train.csv") |>
   mutate(ACTION = factor(ACTION))
 
 my_recipe <- recipe(ACTION~., data = train_data) |>

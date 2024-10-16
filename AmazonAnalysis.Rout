@@ -1,0 +1,208 @@
+
+R version 4.3.3 (2024-02-29) -- "Angel Food Cake"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> library(tidyverse)
+── Attaching core tidyverse packages ──────────────────────── tidyverse 2.0.0 ──
+✔ dplyr     1.1.4     ✔ readr     2.1.5
+✔ forcats   1.0.0     ✔ stringr   1.5.1
+✔ ggplot2   3.5.1     ✔ tibble    3.2.1
+✔ lubridate 1.9.3     ✔ tidyr     1.3.1
+✔ purrr     1.0.2     
+── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
+✖ dplyr::filter() masks stats::filter()
+✖ dplyr::lag()    masks stats::lag()
+ℹ Use the conflicted package (<http://conflicted.r-lib.org/>) to force all conflicts to become errors
+> library(tidymodels)
+── Attaching packages ────────────────────────────────────── tidymodels 1.2.0 ──
+✔ broom        1.0.7     ✔ rsample      1.2.1
+✔ dials        1.3.0     ✔ tune         1.2.1
+✔ infer        1.0.7     ✔ workflows    1.1.4
+✔ modeldata    1.4.0     ✔ workflowsets 1.1.0
+✔ parsnip      1.2.1     ✔ yardstick    1.3.1
+✔ recipes      1.1.0     
+── Conflicts ───────────────────────────────────────── tidymodels_conflicts() ──
+✖ scales::discard() masks purrr::discard()
+✖ dplyr::filter()   masks stats::filter()
+✖ recipes::fixed()  masks stringr::fixed()
+✖ dplyr::lag()      masks stats::lag()
+✖ yardstick::spec() masks readr::spec()
+✖ recipes::step()   masks stats::step()
+• Learn how to get started at https://www.tidymodels.org/start/
+> library(vroom)
+
+Attaching package: ‘vroom’
+
+The following object is masked from ‘package:yardstick’:
+
+    spec
+
+The following object is masked from ‘package:scales’:
+
+    col_factor
+
+The following objects are masked from ‘package:readr’:
+
+    as.col_spec, col_character, col_date, col_datetime, col_double,
+    col_factor, col_guess, col_integer, col_logical, col_number,
+    col_skip, col_time, cols, cols_condense, cols_only, date_names,
+    date_names_lang, date_names_langs, default_locale, fwf_cols,
+    fwf_empty, fwf_positions, fwf_widths, locale, output_column,
+    problems, spec
+
+> library(embed)
+> 
+> test_data <- vroom("test.csv")
+Rows: 58921 Columns: 10
+── Column specification ────────────────────────────────────────────────────────
+Delimiter: ","
+dbl (10): id, RESOURCE, MGR_ID, ROLE_ROLLUP_1, ROLE_ROLLUP_2, ROLE_DEPTNAME,...
+
+ℹ Use `spec()` to retrieve the full column specification for this data.
+ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
+> train_data <- vroom("train.csv") |>
++   mutate(ACTION = factor(ACTION))
+Rows: 32769 Columns: 10
+── Column specification ────────────────────────────────────────────────────────
+Delimiter: ","
+dbl (10): ACTION, RESOURCE, MGR_ID, ROLE_ROLLUP_1, ROLE_ROLLUP_2, ROLE_DEPTN...
+
+ℹ Use `spec()` to retrieve the full column specification for this data.
+ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
+> 
+> my_recipe <- recipe(ACTION~., data = train_data) |>
++   step_mutate_at(all_numeric_predictors(), fn = factor) |>
++   step_other(all_nominal_predictors(), threshold = 0.001) |>
++   step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION)) |>
++   step_normalize(all_nominal_predictors())
+> 
+> prepped_recipe <- prep(my_recipe)
+> show <- bake(prepped_recipe, new_data = train_data)
+> 
+> #########################################################################################
+> 
+> #logistic regression
+> 
+> logreg_mod <- logistic_reg() |>
++   set_engine("glm")
+> 
+> #Workflow and fit
+> logreg_workflow <- workflow() |>
++   add_recipe(my_recipe) |>
++   add_model(logreg_mod) |>
++   fit(data=train_data)
+> 
+> #Make Predictions
+> amazon_preds <- predict(logreg_workflow,
++                         new_data = test_data,
++                         type = "prob")
+> 
+> ## Format predictions for Kaggle
+> kaggle <- amazon_preds|>
++   bind_cols(test_data) |>
++   select(id, .pred_1) |>
++   rename(Action = .pred_1) |>
++   rename(Id = id)
+> 
+> ##write out file
+> vroom_write(x = kaggle, file = "./AmazonLogReg.csv", delim=",")
+> 
+> ##########################################################################################
+> 
+> #Penalized Logistic Regression
+> 
+> pen_mod <- logistic_reg(mixture= tune(), penalty = tune()) |>
++   set_engine("glmnet")
+> 
+> #workflow
+> pen_workflow <- workflow() |>
++   add_recipe(my_recipe) |>
++   add_model(pen_mod)
+> 
+> #grid of values to tune
+> pen_tuning_grid <- grid_regular(penalty(),
++                                 mixture(),
++                                 levels = 10)
+> 
+> #split data for CV
+> folds <- vfold_cv(train_data, v = 5, repeats = 1)
+> 
+> #Run the CV
+> CV_results <- pen_workflow |>
++   tune_grid(resamples = folds,
++             grid = pen_tuning_grid,
++             metrics = metric_set(roc_auc, f_meas, sens, recall, 
++                                   precision, accuracy))
+→ A | warning: While computing binary `precision()`, no predicted events were detected (i.e.
+               `true_positive + false_positive = 0`).
+               Precision is undefined in this case, and `NA` will be returned.
+               Note that 370 true event(s) actually occurred for the problematic event level,
+               0
+There were issues with some computations   A: x1
+→ B | warning: While computing binary `precision()`, no predicted events were detected (i.e.
+               `true_positive + false_positive = 0`).
+               Precision is undefined in this case, and `NA` will be returned.
+               Note that 413 true event(s) actually occurred for the problematic event level,
+               0
+There were issues with some computations   A: x1There were issues with some computations   A: x1   B: x1
+→ C | warning: While computing binary `precision()`, no predicted events were detected (i.e.
+               `true_positive + false_positive = 0`).
+               Precision is undefined in this case, and `NA` will be returned.
+               Note that 378 true event(s) actually occurred for the problematic event level,
+               0
+There were issues with some computations   A: x1   B: x1There were issues with some computations   A: x1   B: x1   C: x1
+→ D | warning: While computing binary `precision()`, no predicted events were detected (i.e.
+               `true_positive + false_positive = 0`).
+               Precision is undefined in this case, and `NA` will be returned.
+               Note that 364 true event(s) actually occurred for the problematic event level,
+               0
+There were issues with some computations   A: x1   B: x1   C: x1There were issues with some computations   A: x1   B: x1   C: x1   D: x1
+→ E | warning: While computing binary `precision()`, no predicted events were detected (i.e.
+               `true_positive + false_positive = 0`).
+               Precision is undefined in this case, and `NA` will be returned.
+               Note that 372 true event(s) actually occurred for the problematic event level,
+               0
+There were issues with some computations   A: x1   B: x1   C: x1   D: x1There were issues with some computations   A: x1   B: x1   C: x1   D: x1   E: x1
+There were issues with some computations   A: x1   B: x1   C: x1   D: x1   E: x1
+
+> #Find best tuning parameters
+> bestTune <- CV_results |>
++   select_best(metric = "roc_auc")
+> 
+> #Finalize the workflow
+> pen_final_wf <- pen_workflow |>
++   finalize_workflow(bestTune) |>
++   fit(data = train_data)
+> 
+> #Predict
+> pen_preds = predict(pen_final_wf, 
++                     new_data = test_data, type = "prob")
+> 
+> ## Format predictions for Kaggle
+> kaggle <- pen_preds|>
++   bind_cols(test_data) |>
++   select(id, .pred_1) |>
++   rename(Action = .pred_1) |>
++   rename(Id = id)
+> 
+> ##write out file
+> vroom_write(x = kaggle, file = "./AmazonPenLog.csv", delim=",")
+> 
+> proc.time()
+   user  system elapsed 
+150.054   1.719 151.562 
