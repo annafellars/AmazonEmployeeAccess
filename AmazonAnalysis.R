@@ -2,6 +2,7 @@ library(tidyverse)
 library(tidymodels)
 library(vroom)
 library(embed)
+library(discrim)
 
 test_data <- vroom("./test.csv")
 train_data <- vroom("./train.csv") |>
@@ -122,52 +123,101 @@ show <- bake(prepped_recipe, new_data = train_data)
 
 ###################################################################################
 
-#Random Forest
-forest_mod <- rand_forest(mtry = tune(),
-                          min_n = tune(),
-                          trees = 5) |>
-  set_engine("ranger") |>
-  set_mode("classification")
+# #Random Forest
+# forest_mod <- rand_forest(mtry = tune(),
+#                           min_n = tune(),
+#                           trees = 500) |>
+#   set_engine("ranger") |>
+#   set_mode("classification")
+# 
+# ## Create a workflow with recipe
+# forest_wf <- workflow() |>
+#   add_recipe(my_recipe) |>
+#   add_model(forest_mod)
+# 
+# ## Set up grid and tuning values
+# forest_tuning_params <- grid_regular(mtry(range = c(1,9)),
+#                                      min_n(),
+#                                      levels = 5)
+# 
+# ##Split data for CV
+# forest_folds <- vfold_cv(train_data, v = 5, repeats = 1)
+# 
+# ##Run the CV
+# forest_CV_results <- forest_wf |>
+#    tune_grid(resamples = forest_folds,
+#              grid = forest_tuning_params,
+#              metrics = metric_set(roc_auc, f_meas, sens, recall, 
+#                                   precision, accuracy))
+# #Find best tuning parameters
+#  forest_best_tune <- forest_CV_results |>
+#    select_best(metric = "roc_auc")
+# 
+# ##finalize the workflow and fit it
+# forest_final <- forest_wf |>
+#   finalize_workflow(forest_best_tune) |>
+#   fit(data = train_data)
+# 
+# ##predict
+# forest_preds <- forest_final |>
+#   predict(new_data = test_data, type = "prob")
+# 
+# 
+# ## Format Predictions for Kaggle
+# forest_kaggle <- forest_preds|>
+#   bind_cols(test_data) |>
+#   select(id, .pred_1) |>
+#   rename(Action = .pred_1) |>
+#   rename(Id = id)
+# 
+# ##write out file
+# vroom_write(x = forest_kaggle, file = "./Amazonforest.csv", delim=",")
 
-## Create a workflow with recipe
-forest_wf <- workflow() |>
+#########################################################################################
+#Naive Bayes Model
+
+nb_mod <- naive_Bayes(Laplace= tune(), smoothness = tune()) |>
+  set_mode("classification") |>
+  set_engine("naivebayes")
+
+nb_wf <- workflow() |>
   add_recipe(my_recipe) |>
-  add_model(forest_mod)
+  add_model(nb_mod)
 
 ## Set up grid and tuning values
-forest_tuning_params <- grid_regular(mtry(range = c(1,9)),
-                                     min_n(),
+nb_tuning_params <- grid_regular(Laplace(),
+                                     smoothness(),
                                      levels = 5)
 
 ##Split data for CV
-forest_folds <- vfold_cv(train_data, v = 5, repeats = 1)
+nb_folds <- vfold_cv(train_data, v = 5, repeats = 1)
 
 ##Run the CV
-forest_CV_results <- forest_wf |>
-   tune_grid(resamples = forest_folds,
-             grid = forest_tuning_params,
-             metrics = metric_set(roc_auc, f_meas, sens, recall, 
-                                  precision, accuracy))
+nb_CV_results <- nb_wf |>
+  tune_grid(resamples = nb_folds,
+            grid = nb_tuning_params,
+            metrics = metric_set(roc_auc, f_meas, sens, recall, 
+                                 precision, accuracy))
 #Find best tuning parameters
- forest_best_tune <- forest_CV_results |>
-   select_best(metric = "roc_auc")
+nb_best_tune <- nb_CV_results |>
+  select_best(metric = "roc_auc")
 
 ##finalize the workflow and fit it
-forest_final <- forest_wf |>
-  finalize_workflow(forest_best_tune) |>
+nb_final <- nb_wf |>
+  finalize_workflow(nb_best_tune) |>
   fit(data = train_data)
 
 ##predict
-forest_preds <- forest_final |>
+nb_preds <- nb_final |>
   predict(new_data = test_data, type = "prob")
 
 
-## Format Penalized Regression 2 Predictions for Kaggle
-forest_kaggle <- forest_preds|>
+## Format Predictions for Kaggle
+nb_kaggle <- nb_preds|>
   bind_cols(test_data) |>
   select(id, .pred_1) |>
   rename(Action = .pred_1) |>
   rename(Id = id)
 
 ##write out file
-vroom_write(x = forest_kaggle, file = "./Amazonforest.csv", delim=",")
+vroom_write(x = nb_kaggle, file = "./AmazonNB.csv", delim=",")
